@@ -1,88 +1,137 @@
-import { useState, useRef, useEffect } from 'react'
-
-const MAX = 240
+import { useState, useRef, useEffect, useCallback } from 'react'
 
 export default function Composer({ onClose, onSubmit }) {
-  const [body, setBody] = useState('')
-  const [author, setAuthor] = useState('')
+  const [wish, setWish] = useState('')
+  const [why, setWhy] = useState('')
   const [closing, setClosing] = useState(false)
-  const textareaRef = useRef(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  const timingRef = useRef({
+    firstKeystrokeAt: null,
+    lastKeystrokeAt: null,
+    longestPause: 0,
+    pauseCount: 0,
+    backspaceCount: 0,
+    totalTime: 0,
+  })
+
+  const submittingRef = useRef(false)
+  const wishRef = useRef(null)
 
   useEffect(() => {
-    textareaRef.current?.focus()
+    wishRef.current?.focus()
   }, [])
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape') close()
+      if (e.key === 'Escape') handleClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  const close = () => {
+  const trackKeystroke = useCallback((isBackspace) => {
+    const t = timingRef.current
+    const now = performance.now()
+
+    if (t.firstKeystrokeAt === null) t.firstKeystrokeAt = now
+
+    if (t.lastKeystrokeAt !== null) {
+      const pause = (now - t.lastKeystrokeAt) / 1000
+      if (pause > t.longestPause) t.longestPause = pause
+      if (pause > 2) t.pauseCount++
+    }
+
+    t.lastKeystrokeAt = now
+    if (isBackspace) t.backspaceCount++
+
+    if (t.firstKeystrokeAt) {
+      t.totalTime = (now - t.firstKeystrokeAt) / 1000
+    }
+  }, [])
+
+  const handleChange = (setter) => (e) => {
+    const inputType = e.nativeEvent?.inputType || ''
+    const isBackspace =
+      inputType === 'deleteContentBackward' ||
+      inputType === 'deleteContentForward'
+    trackKeystroke(isBackspace)
+    setter(e.target.value)
+  }
+
+  const handleClose = () => {
+    if (submittingRef.current) return
     setClosing(true)
     setTimeout(onClose, 280)
   }
 
-  const submit = () => {
-    const trimmed = body.trim()
-    if (!trimmed) return
-    setClosing(true)
+  const handleSubmit = () => {
+    if (!wish.trim() || submittingRef.current) return
+    submittingRef.current = true
+    setSubmitting(true)
+
+    const timing = { ...timingRef.current }
+
     setTimeout(() => {
-      onSubmit(trimmed, author.trim())
-    }, 220)
+      onSubmit(wish.trim(), why.trim(), timing)
+    }, 700)
   }
 
-  const remaining = MAX - body.length
-  const ready = body.trim().length > 0
+  const canSubmit = wish.trim().length > 0 && !submitting
 
   return (
     <div
       className={`composer-overlay ${closing ? 'closing' : ''}`}
-      onClick={close}
+      onClick={handleClose}
     >
       <div className="composer" onClick={(e) => e.stopPropagation()}>
-        <button className="composer-close" onClick={close} aria-label="Close">
+        <button
+          className="composer-close"
+          onClick={handleClose}
+          aria-label="Close"
+          disabled={submitting}
+        >
           ✕
         </button>
 
-        <div className="composer-eyebrow">a wish to the sky</div>
+        <div className="composer-eyebrow">Pythia</div>
+        <h2 className="composer-title">Speak. Be judged.</h2>
 
+        <label className="composer-label">What do you want?</label>
         <textarea
-          ref={textareaRef}
-          className="composer-textarea"
-          placeholder="Write it here. No one has to know."
-          value={body}
-          maxLength={MAX}
-          onChange={(e) => setBody(e.target.value)}
+          ref={wishRef}
+          className="composer-textarea wish"
+          placeholder="Say it plainly."
+          value={wish}
+          onChange={handleChange(setWish)}
+          disabled={submitting}
+          rows={2}
         />
 
-        <div className="composer-meta">
-          <input
-            className="composer-author"
-            type="text"
-            placeholder="sign it (or leave it nameless)"
-            value={author}
-            onChange={(e) => setAuthor(e.target.value)}
-            maxLength={40}
-          />
-          <span className={`composer-count ${remaining < 40 ? 'low' : ''}`}>
-            {remaining}
-          </span>
-        </div>
+        <label className="composer-label">Why do you need it?</label>
+        <textarea
+          className="composer-textarea why"
+          placeholder="Tell the truth. Pythia is not fooled."
+          value={why}
+          onChange={handleChange(setWhy)}
+          disabled={submitting}
+          rows={5}
+        />
 
         <div className="composer-actions">
-          <button className="composer-btn ghost" onClick={close}>
+          <button
+            className="composer-btn ghost"
+            onClick={handleClose}
+            disabled={submitting}
+          >
             Not yet
           </button>
           <button
-            className={`composer-btn release ${ready ? 'ready' : ''}`}
-            onClick={submit}
-            disabled={!ready}
+            className={`composer-btn ask ${canSubmit ? 'ready' : ''}`}
+            onClick={handleSubmit}
+            disabled={!canSubmit}
           >
-            <span className="release-icon">✦</span>
-            Release into the sky
+            {submitting ? 'Pythia is reading…' : 'Ask Pythia'}
           </button>
         </div>
       </div>

@@ -1,40 +1,32 @@
 import { useEffect, useRef } from 'react'
-import {
-  Lantern,
-  Ember,
-  makeStars,
-  drawStars,
-} from '../lib/lantern'
+import { Lantern, Ember, makeStars, drawStars } from '../lib/lantern'
 
 export default function Sky({ wishes, onOpen, paused }) {
   const canvasRef = useRef(null)
   const stateRef = useRef({
-    lanterns: new Map(), // id -> Lantern
+    lanterns: new Map(),
     embers: [],
     stars: null,
     size: { w: 0, h: 0 },
     pointer: { x: 0, y: 0, active: false },
+    mouse: { x: 0.5, y: 0.5 },
     hoveredId: null,
     lastTime: 0,
-    lastWishIds: new Set(),
     paused: false,
   })
 
-  // Keep paused flag fresh inside the loop
   useEffect(() => {
     stateRef.current.paused = paused
   }, [paused])
 
-  // Sync wishes -> lanterns
   useEffect(() => {
     const state = stateRef.current
-    const wanted = new Set(wishes.map((w) => w.id))
+    const granted = wishes.filter((w) => w.verdict === 'GRANTED')
+    const wanted = new Set(granted.map((w) => w.id))
 
-    // Remove lanterns whose wish is gone (released)
     for (const [id, lantern] of state.lanterns) {
       if (!wanted.has(id)) {
-        // Burst into embers
-        const { x, y, hue, w: lw, h: lh } = lantern
+        const { x, y, hue, h: lh } = lantern
         for (let i = 0; i < 90; i++) {
           state.embers.push(new Ember(x, y - lh * 0.2, hue))
         }
@@ -42,10 +34,9 @@ export default function Sky({ wishes, onOpen, paused }) {
       }
     }
 
-    // Add new lanterns
     const { w, h } = state.size
     if (w && h) {
-      for (const wish of wishes) {
+      for (const wish of granted) {
         if (!state.lanterns.has(wish.id)) {
           state.lanterns.set(wish.id, new Lantern(wish, w, h))
         }
@@ -53,7 +44,6 @@ export default function Sky({ wishes, onOpen, paused }) {
     }
   }, [wishes])
 
-  // Main effect — canvas setup + loop
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -70,7 +60,7 @@ export default function Sky({ wishes, onOpen, paused }) {
       canvas.style.height = h + 'px'
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       state.size = { w, h }
-      state.stars = makeStars(w, h, Math.round((w * h) / 6000))
+      state.stars = makeStars(w, h, Math.round((w * h) / 5500))
     }
     resize()
     window.addEventListener('resize', resize)
@@ -80,6 +70,8 @@ export default function Sky({ wishes, onOpen, paused }) {
       state.pointer.x = p.clientX
       state.pointer.y = p.clientY
       state.pointer.active = true
+      state.mouse.x = p.clientX / state.size.w
+      state.mouse.y = p.clientY / state.size.h
     }
     const onLeave = () => {
       state.pointer.active = false
@@ -93,14 +85,11 @@ export default function Sky({ wishes, onOpen, paused }) {
       const p = e.changedTouches ? e.changedTouches[0] : e
       const x = p.clientX
       const y = p.clientY
-      // Topmost = smallest index? We iterate in insertion order, pick last hit
       let hit = null
       for (const lantern of state.lanterns.values()) {
         if (lantern.contains(x, y)) hit = lantern
       }
-      if (hit) {
-        onOpen(hit.wish.id)
-      }
+      if (hit) onOpen(hit.wish.id)
     }
     canvas.addEventListener('mousedown', onDown)
     canvas.addEventListener('touchstart', onDown, { passive: true })
@@ -111,10 +100,8 @@ export default function Sky({ wishes, onOpen, paused }) {
       state.lastTime = now
       const { w, h } = state.size
 
-      // Draw starfield + sky
-      drawStars(ctx, state.stars, w, h, now)
+      drawStars(ctx, state.stars, w, h, now, state.mouse)
 
-      // Update + draw lanterns
       let hoveredId = null
       if (!state.paused && state.pointer.active) {
         for (const lantern of state.lanterns.values()) {
@@ -132,7 +119,6 @@ export default function Sky({ wishes, onOpen, paused }) {
         }
         lantern.draw(ctx)
 
-        // Hover ring
         if (hoveredId === lantern.wish.id) {
           ctx.strokeStyle = `hsla(${lantern.hue}, 90%, 70%, 0.55)`
           ctx.lineWidth = 1
@@ -142,7 +128,6 @@ export default function Sky({ wishes, onOpen, paused }) {
         }
       }
 
-      // Embers
       for (let i = state.embers.length - 1; i >= 0; i--) {
         const em = state.embers[i]
         em.update(dt)
@@ -150,7 +135,6 @@ export default function Sky({ wishes, onOpen, paused }) {
         if (em.life <= 0) state.embers.splice(i, 1)
       }
 
-      // Cursor lantern cursor
       if (state.pointer.active) {
         ctx.fillStyle = 'rgba(201, 169, 97, 0.35)'
         ctx.beginPath()
